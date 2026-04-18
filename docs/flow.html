@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>regionchecker — Flow Laporan</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; font-size: 10.5pt; line-height: 1.45; }
+  h1 { font-size: 20pt; margin: 0 0 4pt; border-bottom: 2px solid #111; padding-bottom: 4pt; }
+  h2 { font-size: 14pt; margin: 18pt 0 6pt; color: #0b3d91; border-bottom: 1px solid #c8d3e3; padding-bottom: 2pt; }
+  h3 { font-size: 12pt; margin: 12pt 0 4pt; color: #222; }
+  p, li { margin: 4pt 0; }
+  code { font-family: "SFMono-Regular", Menlo, Consolas, monospace; background: #f3f4f6; padding: 1pt 3pt; border-radius: 3px; font-size: 9.5pt; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 10pt 12pt; border-radius: 6px; font-size: 9pt; line-height: 1.35; overflow: hidden; page-break-inside: avoid; }
+  pre code { background: transparent; color: inherit; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 9.5pt; }
+  th, td { border: 1px solid #cbd5e1; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #eff4fb; }
+  .meta { color: #475569; font-size: 9pt; margin-bottom: 12pt; }
+  .note { background: #fff8e1; border-left: 3px solid #f59e0b; padding: 6pt 10pt; margin: 8pt 0; border-radius: 0 4px 4px 0; }
+  .tip { background: #e8f5e9; border-left: 3px solid #22c55e; padding: 6pt 10pt; margin: 8pt 0; border-radius: 0 4px 4px 0; }
+  .warn { background: #fef2f2; border-left: 3px solid #ef4444; padding: 6pt 10pt; margin: 8pt 0; border-radius: 0 4px 4px 0; }
+  .flow { display: block; margin: 10pt auto; max-width: 100%; }
+  .two-col { display: flex; gap: 14pt; }
+  .two-col > div { flex: 1; }
+  .kbd { font-family: monospace; background: #1f2937; color: #f9fafb; padding: 1pt 5pt; border-radius: 3px; font-size: 9pt; }
+  .pill { display: inline-block; padding: 1pt 7pt; border-radius: 10px; font-size: 8.5pt; font-weight: 600; }
+  .high { background: #dcfce7; color: #166534; }
+  .med { background: #fef3c7; color: #92400e; }
+  .low { background: #fee2e2; color: #991b1b; }
+  .ipo { background: #e0e7ff; color: #3730a3; }
+  ul { padding-left: 18pt; }
+  ol { padding-left: 18pt; }
+  .page-break { page-break-before: always; }
+  header { display: flex; align-items: baseline; justify-content: space-between; }
+  header .v { color: #64748b; font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>regionchecker — Laporan Flow Klasifikasi</h1>
+  <span class="v">Versi 0.2.0 (P10–P12) · 2026-04-18</span>
+</header>
+<p class="meta">Dokumen: alur lengkap sinyal dari input IP/domain sampai <code>FinalCountry</code>. Audiens: developer / reviewer.</p>
+
+<h2>1. Gambaran Besar</h2>
+<p>regionchecker memutuskan <b>country code</b> suatu IP atau domain berdasarkan gabungan <b>empat sinyal</b>. Tiap sinyal independen dan opsional. Sinyal yang tersedia diberi suara; mayoritas (2+) menang dengan confidence <code>high</code>. Bila tidak ada mayoritas, tiered fallback menentukan hasil.</p>
+
+<table>
+  <tr><th>Sinyal</th><th>Sumber</th><th>Biaya</th><th>Aktivasi</th></tr>
+  <tr><td>Domain suffix</td><td>ccTLD list / IDN / geographic gTLD / PSL (offline)</td><td>ns</td><td>selalu (domain only)</td></tr>
+  <tr><td>IP geo</td><td>RIR delegated files (NRO/APNIC/ARIN/...)</td><td>~20ns</td><td>selalu</td></tr>
+  <tr><td>ASN brand</td><td>MMDB org name → regex match</td><td>µs</td><td><code>--mmdb</code> / <code>--all</code></td></tr>
+  <tr><td>RDAP registrant</td><td>IANA RDAP bootstrap → registry → registrar chain (online)</td><td>~500–2000ms</td><td><code>--rdap</code> / <code>--all</code></td></tr>
+</table>
+
+<h2>2. High-Level Pipeline</h2>
+<svg class="flow" viewBox="0 0 760 360" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .box { fill: #fff; stroke: #334155; stroke-width: 1.2; rx: 6; ry: 6; }
+      .head { fill: #0b3d91; stroke: #0b3d91; }
+      .lbl { font: 11px -apple-system, sans-serif; fill: #0f172a; }
+      .sub { font: 9px -apple-system, sans-serif; fill: #475569; }
+      .hdr { font: 11px -apple-system, sans-serif; fill: #fff; font-weight: 600; }
+      .edge { stroke: #334155; stroke-width: 1.2; fill: none; }
+      .dash { stroke-dasharray: 4 3; }
+    </style>
+  </defs>
+
+  <rect class="box" x="20" y="20" width="120" height="40"/>
+  <text class="lbl" x="80" y="38" text-anchor="middle">Input</text>
+  <text class="sub" x="80" y="52" text-anchor="middle">IP | hostname</text>
+
+  <!-- Decision: IP or host -->
+  <polygon points="200,40 270,10 340,40 270,70" fill="#eef2ff" stroke="#334155" stroke-width="1.2"/>
+  <text class="lbl" x="270" y="42" text-anchor="middle">ParseAddr</text>
+  <text class="sub" x="270" y="55" text-anchor="middle">IP? host?</text>
+
+  <path class="edge" d="M140 40 L200 40" marker-end="url(#arrow)"/>
+
+  <!-- IP branch -->
+  <rect class="box" x="400" y="10" width="170" height="55"/>
+  <text class="hdr" x="485" y="28" text-anchor="middle" fill="#0b3d91">classifyIP</text>
+  <text class="sub" x="485" y="44" text-anchor="middle">bogon filter</text>
+  <text class="sub" x="485" y="56" text-anchor="middle">RIR + (optional) ASN brand</text>
+  <path class="edge" d="M340 30 L400 30" marker-end="url(#arrow)"/>
+
+  <!-- Host branch -->
+  <rect class="box" x="400" y="95" width="170" height="75"/>
+  <text class="hdr" x="485" y="113" text-anchor="middle" fill="#0b3d91">classifyHost</text>
+  <text class="sub" x="485" y="128" text-anchor="middle">suffix → domainCC</text>
+  <text class="sub" x="485" y="140" text-anchor="middle">DNS resolve → ipCC</text>
+  <text class="sub" x="485" y="152" text-anchor="middle">ASN brand + RDAP</text>
+  <path class="edge" d="M340 50 L400 130" marker-end="url(#arrow)"/>
+
+  <!-- Decide -->
+  <rect class="box head" x="610" y="55" width="130" height="60"/>
+  <text class="hdr" x="675" y="80" text-anchor="middle">Decide(Signals)</text>
+  <text class="sub" x="675" y="95" text-anchor="middle" fill="#e2e8f0">voting + tiers</text>
+  <path class="edge" d="M570 37 L610 72" marker-end="url(#arrow)"/>
+  <path class="edge" d="M570 133 L610 98" marker-end="url(#arrow)"/>
+
+  <!-- Result -->
+  <rect class="box" x="570" y="180" width="170" height="75"/>
+  <text class="hdr" x="655" y="198" text-anchor="middle" fill="#0b3d91">Result</text>
+  <text class="sub" x="655" y="214" text-anchor="middle">FinalCountry, Confidence</text>
+  <text class="sub" x="655" y="226" text-anchor="middle">Reason, Signals raw</text>
+  <text class="sub" x="655" y="240" text-anchor="middle">LookupDuration</text>
+  <path class="edge" d="M675 115 L655 180" marker-end="url(#arrow)"/>
+
+  <!-- Output writer -->
+  <rect class="box" x="240" y="240" width="280" height="60"/>
+  <text class="hdr" x="380" y="258" text-anchor="middle" fill="#0b3d91">Output writer</text>
+  <text class="sub" x="380" y="274" text-anchor="middle">text | JSON | CSV</text>
+  <text class="sub" x="380" y="286" text-anchor="middle">stdout / HTTP response</text>
+  <path class="edge" d="M570 245 L520 265" marker-end="url(#arrow)"/>
+</svg>
+
+<h2>3. Branch Detail</h2>
+
+<h3>3.1 IP Branch (<code>classifyIP</code>)</h3>
+<ol>
+  <li><code>netip.ParseAddr</code> → <code>addr.Unmap()</code> (IPv4-mapped IPv6 diturunkan ke IPv4).</li>
+  <li><code>bogon.Match</code>: kalau reserved (RFC1918, CGNAT, loopback, link-local, multicast, doc) → return <code>ErrBogon</code>. Tanpa lookup lebih jauh.</li>
+  <li><code>rir.DB.LookupIP</code> (mmap snapshot, binary search) → <code>(cc, meta)</code>. Alokasi per RIR (APNIC/ARIN/...), bukan routing.</li>
+  <li>Opsional <code>ASN.Lookup(addr)</code> (MMDB) → <code>(asn, org)</code>, lalu <code>asn.BrandCountry(org)</code> → <code>asnCC</code>.</li>
+  <li><code>Decide(Signals{IPCC, ASNCC, IsIPInput: true})</code>.</li>
+</ol>
+<div class="note"><b>Catatan:</b> RDAP tidak dipanggil untuk raw IP (RDAP domain endpoint, bukan IP).</div>
+
+<h3>3.2 Host Branch (<code>classifyHost</code>)</h3>
+<ol>
+  <li><code>domain.Country(input)</code>: pakai ccTLD list (248 entry dari IANA), IDN Punycode, geographic gTLD, PSL. Menghasilkan <code>domCC</code> + <code>domType</code> (<code>cctld</code>/<code>idn</code>/<code>geo-gtld</code>/<code>generic</code>).</li>
+  <li><code>Resolver.Resolve(ctx, host)</code> → list of <code>netip.Addr</code>. Timeout default 5s (flag <code>--timeout</code>).</li>
+  <li>Pick first non-bogon address → <code>firstPublic</code>.</li>
+  <li><code>rir.DB.LookupIP(firstPublic)</code> → <code>(ipCC, meta)</code>.</li>
+  <li>Opsional <code>ASN.Lookup(firstPublic)</code> + <code>BrandCountry</code> → <code>asnCC</code>.</li>
+  <li>Opsional <code>RDAP.Lookup(ctx, input)</code> → <code>rdapCC</code>.</li>
+  <li>Kalau <code>dnsFailed</code> dan semua sinyal kosong → <code>ErrUnresolvable</code>.</li>
+  <li><code>Decide(Signals{...semua sinyal...})</code>.</li>
+</ol>
+
+<div class="page-break"></div>
+
+<h2>4. Decide — Voting &amp; Tiers</h2>
+
+<h3>4.1 Algoritma</h3>
+<pre><code>Signals = { DomainCC, DomainType, IPCC, ASNCC, RDAPCC, DNSFailed, IsIPInput }
+
+1. IF IsIPInput AND ASNCC=="" AND RDAPCC=="":
+     IF IPCC != "" → (IPCC, ip-only)
+     ELSE         → ("", unknown)
+
+2. votes[cc] = count of non-empty signals == cc
+   best = argmax(votes);  n = votes[best]
+   IF n >= 2 → (best, high, "X+Y agree on &lt;CC&gt;")
+
+3. IF ASNCC != "" → (ASNCC, high-asn-brand)
+4. IF RDAPCC != "" → (RDAPCC, high-rdap-registrant)
+
+5. IF DNSFailed:
+     IF DomainCC != "" → (DomainCC, low-dns-failed)
+     ELSE              → ("", unknown)
+
+6. IF DomainCC != "" AND IPCC != "" AND DomainCC != IPCC:
+     IF DomainCC == "ID" → (ID, medium-domain-id-offshore-host)
+     ELSE                → (DomainCC, medium-domain-cc-mismatch)
+
+7. IF DomainCC=="" AND (DomainType=="generic" OR "") AND IPCC=="ID":
+     → (ID, medium-generic-tld-id-host)
+
+8. Single-signal fallback: DomainCC only / IPCC only / unknown.</code></pre>
+
+<h3>4.2 Confidence Tiers</h3>
+<table>
+  <tr><th>Tier</th><th>Arti</th><th>Contoh</th></tr>
+  <tr><td><span class="pill high">high</span></td><td>2+ sinyal setuju</td><td>google.co.id → domain=ID, ip=ID</td></tr>
+  <tr><td><span class="pill high">high-asn-brand</span></td><td>ASN brand override (company identity &gt; hosting geo)</td><td>raw IP punya ASN TOKOPEDIA → ID</td></tr>
+  <tr><td><span class="pill high">high-rdap-registrant</span></td><td>Registrant domain kontradiksi IP</td><td>tokopedia.com → RDAP=ID, IP=US</td></tr>
+  <tr><td><span class="pill med">medium-domain-id-offshore-host</span></td><td>.id tapi host luar</td><td>contoh.id → IP US</td></tr>
+  <tr><td><span class="pill med">medium-generic-tld-id-host</span></td><td>generic TLD tapi host di ID</td><td>contoh.com → IP ID</td></tr>
+  <tr><td><span class="pill med">medium-domain-cc-mismatch</span></td><td>cctld ≠ IP (non-ID)</td><td>bbc.co.uk → IP US</td></tr>
+  <tr><td><span class="pill low">low-dns-failed</span></td><td>DNS gagal, pakai domain saja</td><td>offline+.id host unresolvable</td></tr>
+  <tr><td><span class="pill ipo">ip-only</span></td><td>Cuma sinyal IP geo</td><td>raw IP 8.8.8.8 → US</td></tr>
+  <tr><td><span class="pill low">unknown</span></td><td>Tidak ada sinyal</td><td>—</td></tr>
+</table>
+
+<h2>5. Sinyal — Mekanisme Detil</h2>
+
+<h3>5.1 Domain Suffix</h3>
+<p>Ordered check: IDN Punycode → ccTLD exact (e.g. <code>.id</code> → ID) → geographic gTLD (<code>.london</code> → GB) → PSL untuk multi-part suffix (<code>.co.uk</code> → GB). Kalau tidak match apapun dan masih gTLD generic → <code>domainType=generic</code>, <code>domainCC=""</code>.</p>
+
+<h3>5.2 IP Geo (RIR)</h3>
+<p>Build snapshot dari file delegated-stats (NRO combined by default). Tiap entry: <code>prefix → (cc, registry)</code>. Decomposed ke CIDR, disimpan sorted array, binary search O(log n). Mmap-backed untuk zero-copy. Lookup ~19ns/op.</p>
+<div class="warn"><b>Gotcha:</b> RIR = alokasi, bukan routing. 1.1.1.1 = APNIC/AU meski anycast ke seluruh dunia.</div>
+
+<h3>5.3 ASN Brand</h3>
+<p>MMDB reader dukung dua format:</p>
+<ul>
+  <li><b>MaxMind / DB-IP Lite</b>: field <code>autonomous_system_number</code> (uint) + <code>autonomous_system_organization</code> (string).</li>
+  <li><b>ipinfo</b>: field <code>asn</code> (string "AS12345") + <code>as_name</code>.</li>
+</ul>
+<p>Setelah <code>org</code> didapat, cocokkan regex (word-boundary anchored):</p>
+<pre><code>ID carriers/ISPs:
+  \b(TELKOM|TELKOMSEL|BIZNET|INDIHOME|LINKNET|CBN|INDOSAT|
+     AXIATA|SMARTFREN|FIRST[-\s]?MEDIA|HYPERNET|NIAGAHOSTER|
+     DEWAWEB|IDWEBHOST|DATACIPTA|MYREPUBLIC INDONESIA|MORATELINDO)\b
+
+ID internet co. (own ASN):
+  \b(TOKOPEDIA|BUKALAPAK|GOJEK|TRAVELOKA|BLIBLI|HALODOC|
+     JNE|DETIK|KOMPAS[-\s]?GRAMEDIA)\b</code></pre>
+
+<div class="note"><b>Perlu ga brand regex?</b> Kelebihannya: offline, zero latency, jalan bareng IP geo lookup. Keterbatasannya: <i>hanya hit kalau target pakai ASN sendiri</i>. Kenyataannya sebagian besar domain host di cloud (AWS/Alibaba/Fastly/Cloudflare) — ASN milik cloud provider, bukan company. Overlap dengan RDAP: RDAP catch "PT Tokopedia" via registrant country apapun hostingnya. <b>Saran</b>: pertahankan brand untuk kasus di-ASN-sendiri (cepat, cost nol); tapi jangan andalkan itu doang — RDAP adalah sumber utama untuk identifikasi origin.</div>
+
+<h3>5.4 RDAP Registrant</h3>
+<ol>
+  <li>Load IANA bootstrap <code>dns.json</code> (embed, ~69KB) → map TLD → base URL RDAP registry.</li>
+  <li><code>GET &lt;base&gt;/domain/&lt;name&gt;</code> dengan <code>Accept: application/rdap+json</code>, timeout 3s.</li>
+  <li>Parse entities jCard — cari role <code>registrant</code>, ambil <code>adr</code> parameter <code>cc</code> (ISO alpha-2).</li>
+  <li><b>Fallback chain</b>: registry gTLD seperti Verisign .com <i>tidak</i> expose registrant, cuma registrar. Ikutin <code>links[].rel=related, type=application/rdap+json</code> → fetch registrar RDAP → parse lagi.</li>
+  <li>Disk cache <code>~/.cache/regionchecker/rdap/&lt;sha256(domain)&gt;.json</code>, TTL 7 hari. Negative hasil (redacted) juga di-cache untuk hindari re-fetch.</li>
+</ol>
+
+<div class="warn"><b>Redaksi GDPR/ICANN:</b> banyak TLD menyembunyikan registrant (especially gTLDs generic). Kalau redacted → <code>rdapCC=""</code> → sinyal tidak menyumbang voting. Graceful degrade ke signal lain.</div>
+
+<div class="page-break"></div>
+
+<h2>6. Contoh Real</h2>
+
+<h3>6.1 tokopedia.com (cloud-hosted ID brand)</h3>
+<pre><code>$ ./bin/regionchecker check --all -o json tokopedia.com
+
+{
+  "input": "tokopedia.com",
+  "resolved": ["47.74.244.18"],
+  "domain_suffix": "generic",
+  "ip_country": "US",
+  "asn": 45102,
+  "asn_org": "Alibaba (US) Technology Co., Ltd.",
+  "registrant_country": "ID",
+  "registry": "arin",
+  "final_country": "ID",
+  "confidence": "high-rdap-registrant",
+  "reason": "rdap registrant ID overrides ip US"
+}</code></pre>
+<p>Flow: DNS → Alibaba US IP. RIR → US. MMDB org = Alibaba → bukan brand ID, <code>asnCC=""</code>. RDAP Verisign thin → follow ke CSC Global → registrant PT TOKOPEDIA, cc=ID. Voting: [US, ID] = tidak ada mayoritas. Tier 4 (RDAP sole signal) → <code>high-rdap-registrant</code>, FinalCountry=ID.</p>
+
+<h3>6.2 google.co.id (domain + host agree)</h3>
+<pre><code>  "domain_country": "ID", "domain_suffix": "cctld",
+  "ip_country": "AU", "asn_org": "Google LLC",
+  "registrant_country": "ID",
+  "final_country": "ID", "confidence": "high",
+  "reason": "domain cctld+rdap agree on ID"</code></pre>
+<p>Voting: ID (domain) + ID (rdap) = 2 votes → <code>high</code>. IP AU (Google anycast) diabaikan karena kalah voting.</p>
+
+<h3>6.3 8.8.8.8 (raw IP)</h3>
+<pre><code>  "type": "ip", "ip_country": "US",
+  "asn_org": "Google LLC",
+  "final_country": "US", "confidence": "ip-only",
+  "reason": "raw ip input; rir lookup"</code></pre>
+
+<h3>6.4 bukalapak.com</h3>
+<pre><code>  "ip_country": "US", "asn_org": "Fastly, Inc.",
+  "registrant_country": "ID",
+  "final_country": "ID", "confidence": "high-rdap-registrant"</code></pre>
+<p>Fastly CDN di US. ASN brand tidak match. RDAP menyelamatkan.</p>
+
+<h3>6.5 traveloka.com (registrant di UK)</h3>
+<pre><code>  "ip_country": "US", "asn_org": "Amazon.com, Inc.",
+  "registrant_country": "GB",
+  "final_country": "GB", "confidence": "high-rdap-registrant"</code></pre>
+<div class="note">RDAP kata GB — memang tuples &quot;Amazon Registrar&quot; listing address UK/privacy proxy. Exact per data, walau operasional Traveloka di Indonesia. Interpretasi hasil: registrant ≠ HQ.</div>
+
+<h2>7. CLI Flag Reference</h2>
+
+<table>
+  <tr><th>Flag</th><th>Efek</th><th>Biaya</th></tr>
+  <tr><td><code>--offline</code></td><td>Skip DNS, domain signal saja</td><td>0</td></tr>
+  <tr><td><code>--mmdb &lt;path&gt;</code></td><td>Aktifkan ASN lookup + brand heuristic</td><td>µs/lookup</td></tr>
+  <tr><td><code>--rdap</code></td><td>Aktifkan RDAP registrant (cache 7d)</td><td>~500–2000ms cold</td></tr>
+  <tr><td><code>--rdap-timeout &lt;d&gt;</code></td><td>Timeout per RDAP call</td><td>—</td></tr>
+  <tr><td><code>--all</code></td><td>Auto-MMDB + RDAP enabled</td><td>semua di atas</td></tr>
+  <tr><td><code>--timeout &lt;d&gt;</code></td><td>Timeout DNS</td><td>—</td></tr>
+  <tr><td><code>-o text|json|csv</code></td><td>Format output</td><td>—</td></tr>
+</table>
+
+<h3>Auto-MMDB resolution order (<code>--all</code>)</h3>
+<ol>
+  <li><code>$REGIONCHECKER_MMDB</code></li>
+  <li>config <code>mmdb_path</code> (yaml)</li>
+  <li><code>$XDG_CACHE_HOME/regionchecker/asn.mmdb</code></li>
+  <li><code>~/.cache/regionchecker/asn.mmdb</code></li>
+  <li><code>~/.cache/regionchecker/country_asn.mmdb</code></li>
+  <li><code>~/.local/share/regionchecker/asn.mmdb</code></li>
+  <li><code>/usr/share/GeoIP/GeoLite2-ASN.mmdb</code></li>
+</ol>
+
+<h2>8. Evaluasi: Perlu ASN Brand Regex?</h2>
+
+<div class="two-col">
+<div>
+<h3>Pro (simpan)</h3>
+<ul>
+  <li>Offline — jalan tanpa network.</li>
+  <li>Latency nol extra; sudah dipanggil bareng ASN lookup.</li>
+  <li>Catch kasus raw IP owned-ASN (mis. <code>103.10.169.1</code> → ASN TOKOPEDIA).</li>
+  <li>Confidence tinggi (<code>high-asn-brand</code>) kalau hit — company identity stronger than hosting geo.</li>
+</ul>
+</div>
+<div>
+<h3>Kontra (drop)</h3>
+<ul>
+  <li>Daftar hardcoded — perlu maintenance.</li>
+  <li>Jarang hit: target umumnya host di cloud (Fastly/AWS/Alibaba/Cloudflare).</li>
+  <li>Overlap dengan RDAP registrant (lebih authoritative).</li>
+  <li>Bias regex false positive (e.g. brand name bergemilang di org string lain).</li>
+</ul>
+</div>
+</div>
+
+<div class="tip"><b>Rekomendasi:</b> pertahankan tetapi <b>kecilkan cakupan</b> ke brand yang benar-benar jalanin ASN sendiri (TOKOPEDIA, BUKALAPAK, GOJEK) + ISP besar (TELKOM, BIZNET, INDOSAT). Jangan tambah brand cloud-hosted (TRAVELOKA/BLIBLI/DETIK — tidak jalanin ASN sendiri); mereka akan selalu false-negative di sini. Untuk mereka, RDAP yang pegang.</div>
+
+<h2>9. Ringkasan Keputusan Arsitektur</h2>
+<ul>
+  <li><b>Struct Signals</b> bukan positional args — growth-friendly, readable.</li>
+  <li><b>Voting</b> → majority 2+ wins; single-signal fallback tetap ada (backward compat).</li>
+  <li><b>RDAP chain</b> — registry thin, follow "related" ke registrar. Parse defensive (tolerate redaction).</li>
+  <li><b>Disk cache RDAP</b> — TTL 7d. Negative (redacted) juga di-cache (hindari repeat loss).</li>
+  <li><b>MMDB dual-format</b> — MaxMind + ipinfo. Decoder silently ignore absent fields.</li>
+  <li><b>Graceful degrade</b> — tiap sinyal opsional, error tidak memblock klasifikasi.</li>
+</ul>
+
+<h2>10. File yang Disentuh (P10–P12)</h2>
+<pre><code>internal/asn/orgregex.go          # brand regex diperluas + BrandCountry
+internal/asn/orgregex_test.go
+internal/asn/mmdb.go              # dual-format MaxMind + ipinfo
+internal/classifier/classifier.go # +RDAPLookup iface, +RegistrantCountry, +ASNCountry
+internal/classifier/decision.go   # refactor → Signals struct, voting, new tiers
+internal/classifier/classifier_test.go
+internal/rdap/bootstrap.go        # IANA embed + parse
+internal/rdap/client.go           # HTTP + related-link follow
+internal/rdap/cache.go            # disk cache 7d TTL
+internal/rdap/parse.go            # vcardArray extractor
+internal/rdap/rdap_test.go
+internal/rdap/dns.json            # IANA bootstrap snapshot
+internal/output/output.go         # +asn_country, +registrant_country
+pkg/regionchecker/client.go       # Result mirror fields
+cmd/regionchecker/subcommands.go  # --rdap, --rdap-timeout, --all, autoMMDB()
+README.md
+tasks/todo.md</code></pre>
+
+<footer style="margin-top: 30pt; color: #64748b; font-size: 8.5pt; text-align: center;">
+  regionchecker · MIT · github.com/binsarjr/regionchecker
+</footer>
+
+</body>
+</html>
