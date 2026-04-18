@@ -1,9 +1,11 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
     - gosec
@@ -18,21 +20,23 @@ linters:
     - nolintlint
     - govet
     - staticcheck
+
+  settings:
+    gosec:
+      excludes:
+        - G104
+    govet:
+      enable-all: true
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - unparam
+
+formatters:
+  enable:
     - gofmt
     - goimports
-
-linters-settings:
-  revive:
-    rules:
-      - name: line-length-limit
-        arguments: [120]
-  gosec:
-    excludes:
-      - G104
-  govet:
-    enable-all: true
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters: [gosec, errcheck, unparam]
