@@ -9,6 +9,7 @@ const (
 	ConfHighSSLCert            = "high-ssl-cert"
 	ConfHighContent            = "high-content-scan"
 	ConfHighRDAPRegistrant     = "high-rdap-registrant"
+	ConfMediumWayback          = "medium-wayback-snapshot"
 	ConfMediumDomainIDOffshore = "medium-domain-id-offshore-host"
 	ConfMediumGenericTLDIDHost = "medium-generic-tld-id-host"
 	ConfMediumDomainCCMismatch = "medium-domain-cc-mismatch"

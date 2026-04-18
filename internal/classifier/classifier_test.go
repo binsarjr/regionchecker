@@ -294,12 +294,20 @@ func TestClassify_DomainCCMismatch(t *testing.T) {
 	}
 }
 
-func TestClassify_DNSFailWithDomainSignal(t *testing.T) {
-	// DNS fails but we have a .fail hostname with no domain signal → ErrUnresolvable.
+func TestClassify_DNSFailWithoutDomainSignal(t *testing.T) {
+	// DNS fails and no enrichment configured; classifier now surfaces
+	// an Unknown row instead of an error so batch consumers see
+	// consistent output.
 	c := newClassifier()
-	_, err := c.Classify(context.Background(), "dns.fail.example")
-	if !errors.Is(err, classifier.ErrUnresolvable) {
-		t.Errorf("err = %v, want ErrUnresolvable", err)
+	r, err := c.Classify(context.Background(), "dns.fail.example")
+	if err != nil {
+		t.Fatalf("unexpected err = %v", err)
+	}
+	if r.Confidence != classifier.ConfUnknown {
+		t.Errorf("Confidence = %q, want %q", r.Confidence, classifier.ConfUnknown)
+	}
+	if r.FinalCountry != "" {
+		t.Errorf("FinalCountry = %q, want empty", r.FinalCountry)
 	}
 }
 

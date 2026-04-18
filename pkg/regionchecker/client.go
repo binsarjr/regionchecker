@@ -35,6 +35,7 @@ type Result struct {
 	CertCountry       string
 	RegistrantCountry string
 	ContentCountry    string
+	WaybackCountry    string
 	Registry          string
 	FinalCountry      string
 	Confidence        string

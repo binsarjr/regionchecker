@@ -57,6 +57,13 @@ type ContentScanLookup interface {
 	Lookup(ctx context.Context, host string) (cc string, ok bool)
 }
 
+// WaybackLookup fetches the nearest archived Wayback Machine snapshot
+// of host and scores its body with content-scan detectors. Useful for
+// expired or temporarily unreachable domains.
+type WaybackLookup interface {
+	Lookup(ctx context.Context, host string) (cc string, ok bool)
+}
+
 // Result is the full classification of a single input.
 type Result struct {
 	Input             string
@@ -71,6 +78,7 @@ type Result struct {
 	CertCountry       string // from TLS leaf Subject.Country
 	RegistrantCountry string // from RDAP registrant
 	ContentCountry    string // from HTML content scan
+	WaybackCountry    string // from Wayback snapshot content scan
 	Registry          string
 	FinalCountry      string
 	Confidence        string
@@ -88,6 +96,7 @@ type Classifier struct {
 	TLSCert     TLSCertLookup
 	RDAP        RDAPLookup
 	ContentScan ContentScanLookup
+	Wayback     WaybackLookup
 }
 
 // New returns a classifier with default dependencies.
@@ -159,6 +168,33 @@ func (c *Classifier) classifyIP(addr netip.Addr, input string, start time.Time) 
 	return r, nil
 }
 
+// enrichApex tries TLS cert, content scan, RDAP, then Wayback against
+// apex in that order. Returns (cc, src) where src ∈ {"tls", "scan",
+// "rdap", "wayback"}; ("", "") on total miss.
+func (c *Classifier) enrichApex(ctx context.Context, apex string) (string, string) {
+	if c.TLSCert != nil {
+		if cc, ok := c.TLSCert.Lookup(ctx, apex); ok {
+			return cc, "tls"
+		}
+	}
+	if c.ContentScan != nil {
+		if cc, ok := c.ContentScan.Lookup(ctx, apex); ok {
+			return cc, "scan"
+		}
+	}
+	if c.RDAP != nil {
+		if cc, ok := c.RDAP.Lookup(ctx, apex); ok {
+			return cc, "rdap"
+		}
+	}
+	if c.Wayback != nil {
+		if cc, ok := c.Wayback.Lookup(ctx, apex); ok {
+			return cc, "wayback"
+		}
+	}
+	return "", ""
+}
+
 // classifyHost runs the early-exit ladder for hostname inputs.
 //
 // Ladder order (first confident answer wins):
@@ -224,15 +260,62 @@ func (c *Classifier) classifyHost(ctx context.Context, input string, start time.
 		return finish()
 	}
 
-	// DNS failed: trust the ccTLD if present, else give up.
+	// DNS failed: enrichment via RDAP still works (registry, not DNS).
+	// TLS/content scan need DNS and are only tried on the apex if distinct.
 	if dnsFailed {
+		// 1. RDAP on the input itself — hits for typo'd but registered domains.
+		if c.RDAP != nil {
+			if cc, ok := c.RDAP.Lookup(ctx, input); ok {
+				r.RegistrantCountry = cc
+				r.FinalCountry = cc
+				r.Confidence = ConfHighRDAPRegistrant
+				r.Reason = "dns failed; rdap registrant " + cc
+				return finish()
+			}
+		}
+		// 2. Apex fallback — try full enrichment (TLS+scan+RDAP) on the
+		//    registrable parent, useful when only the subdomain is wrong.
+		if apex, err := domain.RegisteredDomain(input); err == nil && apex != "" && apex != input {
+			if cc, src := c.enrichApex(ctx, apex); cc != "" {
+				r.FinalCountry = cc
+				switch src {
+				case "tls":
+					r.Confidence = ConfHighSSLCert
+					r.CertCountry = cc
+				case "scan":
+					r.Confidence = ConfHighContent
+					r.ContentCountry = cc
+				case "rdap":
+					r.Confidence = ConfHighRDAPRegistrant
+					r.RegistrantCountry = cc
+				}
+				r.Reason = "dns failed; apex " + apex + " " + src + " " + cc
+				return finish()
+			}
+		}
+		// 3. Wayback Machine — archived snapshot may identify origin even
+		//    when the domain is expired or temporarily unreachable.
+		if c.Wayback != nil {
+			if cc, ok := c.Wayback.Lookup(ctx, input); ok {
+				r.WaybackCountry = cc
+				r.FinalCountry = cc
+				r.Confidence = ConfMediumWayback
+				r.Reason = "dns failed; wayback snapshot " + cc
+				return finish()
+			}
+		}
+		// 4. Fall back to ccTLD signal if present.
 		if domCC != "" {
 			r.FinalCountry = domCC
 			r.Confidence = ConfLowDNSFailed
 			r.Reason = "dns failed; used " + domType + " signal"
 			return finish()
 		}
-		return nil, ErrUnresolvable
+		// 5. Last resort: surface Unknown with a proper row rather than
+		//    aborting — callers batch-processing CSV need consistent output.
+		r.Confidence = ConfUnknown
+		r.Reason = "dns failed; no enrichment signal"
+		return finish()
 	}
 
 	// From here we are in the generic/unknown-TLD path. Walk enrichment
@@ -308,7 +391,50 @@ func (c *Classifier) classifyHost(ctx context.Context, input string, start time.
 		return finish()
 	}
 
-	// Layer 8: Single-signal fallback.
+	// Layer 8: apex fallback — input resolved but all enrichment missed.
+	// Try the registrable parent (e.g., subdomain.example.com → example.com);
+	// often its RDAP or TLS cert carries the origin country.
+	if apex, err := domain.RegisteredDomain(input); err == nil && apex != "" && apex != input {
+		if cc, src := c.enrichApex(ctx, apex); cc != "" {
+			r.FinalCountry = cc
+			switch src {
+			case "tls":
+				r.Confidence = ConfHighSSLCert
+				r.CertCountry = cc
+			case "scan":
+				r.Confidence = ConfHighContent
+				r.ContentCountry = cc
+			case "rdap":
+				r.Confidence = ConfHighRDAPRegistrant
+				r.RegistrantCountry = cc
+			case "wayback":
+				r.Confidence = ConfMediumWayback
+				r.WaybackCountry = cc
+			}
+			r.Reason = "apex " + apex + " " + src + " " + cc
+			if ipCC != "" && ipCC != cc {
+				r.Reason += " overrides ip " + ipCC
+			}
+			return finish()
+		}
+	}
+
+	// Layer 9: Wayback on input — historical content when live fetch
+	// misses (JS-only pages, geofenced content, etc.).
+	if c.Wayback != nil {
+		if cc, ok := c.Wayback.Lookup(ctx, input); ok {
+			r.WaybackCountry = cc
+			r.FinalCountry = cc
+			r.Confidence = ConfMediumWayback
+			r.Reason = "wayback snapshot " + cc
+			if ipCC != "" && ipCC != cc {
+				r.Reason += " overrides ip " + ipCC
+			}
+			return finish()
+		}
+	}
+
+	// Layer 10: Single-signal fallback.
 	if domCC != "" && ipCC == "" {
 		r.FinalCountry = domCC
 		r.Confidence = ConfLowDNSFailed

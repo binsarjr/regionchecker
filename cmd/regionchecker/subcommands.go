@@ -24,6 +24,7 @@ import (
 	"github.com/binsarjr/regionchecker/internal/rir"
 	"github.com/binsarjr/regionchecker/internal/server"
 	"github.com/binsarjr/regionchecker/internal/tlscert"
+	"github.com/binsarjr/regionchecker/internal/wayback"
 )
 
 const parsedSnapshotName = "ipv4-ranges.bin"
@@ -43,9 +44,11 @@ func checkCmd() *cli.Command {
 			&cli.BoolFlag{Name: "no-rdap", Usage: "opt out of RDAP enrichment"},
 			&cli.BoolFlag{Name: "no-cert", Usage: "opt out of TLS cert enrichment"},
 			&cli.BoolFlag{Name: "no-scan", Usage: "opt out of HTML content scan"},
+			&cli.BoolFlag{Name: "no-wayback", Usage: "opt out of Wayback Machine fallback"},
 			&cli.DurationFlag{Name: "rdap-timeout", Value: 3 * time.Second, Usage: "RDAP per-query timeout"},
 			&cli.DurationFlag{Name: "cert-timeout", Value: 3 * time.Second, Usage: "TLS cert dial timeout"},
 			&cli.DurationFlag{Name: "scan-timeout", Value: 4 * time.Second, Usage: "content scan HTTP timeout"},
+			&cli.DurationFlag{Name: "wayback-timeout", Value: 8 * time.Second, Usage: "Wayback Machine timeout"},
 		},
 		Action: func(c *cli.Context) error {
 			cfg, err := loadConfig(c)
@@ -109,6 +112,16 @@ func checkCmd() *cli.Command {
 				cls.ContentScan = sc
 			}
 
+			if onlineEnrich && !c.Bool("no-wayback") {
+				wc := wayback.NewClient()
+				wc.Timeout = c.Duration("wayback-timeout")
+				wc.HTTP.Timeout = wc.Timeout
+				if dc, err := wayback.NewDiskCache(filepath.Join(cfg.CacheDir, "wayback"), 7*24*time.Hour); err == nil {
+					wc.Cache = dc
+				}
+				cls.Wayback = wc
+			}
+
 			if onlineEnrich && !c.Bool("no-rdap") {
 				rc, err := rdap.NewClient()
 				if err != nil {
@@ -131,8 +144,14 @@ func checkCmd() *cli.Command {
 			for _, in := range dedup(inputs) {
 				r, err := cls.Classify(c.Context, in)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %v\n", in, err)
-					continue
+					// Surface a proper row with unknown confidence so
+					// CSV/JSON consumers get consistent output. Error
+					// text is preserved in the reason field.
+					r = &classifier.Result{
+						Input:      in,
+						Confidence: classifier.ConfUnknown,
+						Reason:     err.Error(),
+					}
 				}
 				if err := w.Write(r); err != nil {
 					return err

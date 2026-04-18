@@ -6,6 +6,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-18
+### Added
+- **Apex fallback** — when a subdomain (e.g., typo'd hostname) has no
+  DNS/enrichment signal, the classifier retries TLS cert, content scan,
+  RDAP, and Wayback against the registrable parent (via PSL).
+- **Wayback Machine layer** (`internal/wayback`) — fetches the nearest
+  archived snapshot and scores its body with content-scan detectors.
+  Catches expired/unreachable domains. Flags `--no-wayback` /
+  `--wayback-timeout`. 7-day disk cache.
+- New confidence tier: `medium-wayback-snapshot`.
+- Result field: `WaybackCountry` (JSON `wayback_country`, CSV column).
+
+### Changed
+- **Never-error classification**: `classifyHost` no longer returns
+  `ErrUnresolvable`; instead surfaces a row with `unknown` confidence
+  and the diagnostic reason so batch (CSV/JSON) consumers get
+  consistent output. CLI also converts residual errors (bogon,
+  invalid input) into `unknown` rows.
+- DNS-fail path now walks RDAP-on-input → apex enrichment →
+  Wayback → ccTLD → unknown (was: ccTLD → error).
+
+### Fixed
+- `dasarpemrogramangolangs.novalagung.com` (subdomain typo) now
+  classifies to ID via apex RDAP instead of erroring out.
+
 ## [0.2.0] - 2026-04-18
 ### Added
 - **Multi-signal enrichment ladder** — cheapest signals first, early-exit
@@ -72,6 +97,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 - Deploy scaffolding: Dockerfile (distroless nonroot), docker-compose, k8s manifests,
   goreleaser (3 OS × 2 arch, cosign, syft SBOM), Makefile (build, docker, release).
 
-[Unreleased]: https://github.com/binsarjr/regionchecker/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/binsarjr/regionchecker/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/binsarjr/regionchecker/releases/tag/v0.2.1
 [0.2.0]: https://github.com/binsarjr/regionchecker/releases/tag/v0.2.0
 [0.1.0]: https://github.com/binsarjr/regionchecker/releases/tag/v0.1.0
