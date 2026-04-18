@@ -1,0 +1,70 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: regionchecker-update-db
+  namespace: regionchecker
+  labels:
+    app.kubernetes.io/name: regionchecker
+    app.kubernetes.io/component: updater
+spec:
+  schedule: "0 3 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: regionchecker
+            app.kubernetes.io/component: updater
+        spec:
+          restartPolicy: OnFailure
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: update-db
+              image: ghcr.io/binsarjr/regionchecker:latest
+              imagePullPolicy: IfNotPresent
+              args:
+                - update-db
+                - --source=nro
+                - --cache-dir=/var/cache/regionchecker
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65532
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: cache
+                  mountPath: /var/cache/regionchecker
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: cache
+              persistentVolumeClaim:
+                claimName: regionchecker-cache
+            - name: tmp
+              emptyDir:
+                medium: Memory
+                sizeLimit: 32Mi

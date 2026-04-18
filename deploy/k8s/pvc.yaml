@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: regionchecker-cache
+  namespace: regionchecker
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+  # If RWX is unavailable on your cluster, switch to ReadWriteOnce and set
+  # the Deployment strategy to Recreate with replicas: 1, or run one PVC per
+  # pod via a StatefulSet.

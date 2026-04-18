@@ -1,0 +1,32 @@
+# Binaries
+/regionchecker
+/seed
+/bin/
+/dist/
+
+# Test + coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go caches
+vendor/
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+
+# IDE / tooling workspace
+.claude/
+.serena/
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Local env
+.env
+.env.local

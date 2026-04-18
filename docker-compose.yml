@@ -1,0 +1,80 @@
+services:
+  regionchecker:
+    image: ghcr.io/binsarjr/regionchecker:${RC_VERSION:-latest}
+    container_name: regionchecker
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/entrypoint.sh"]
+    command: ["serve", "--listen", ":8080", "--cache-dir", "/var/cache/regionchecker"]
+    environment:
+      RC_CACHE_DIR: /var/cache/regionchecker
+      RC_LISTEN: ":8080"
+      RC_LOG_LEVEL: info
+      RC_SOURCE: nro
+    ports:
+      - "8080:8080"
+    volumes:
+      - regionchecker-cache:/var/cache/regionchecker
+    networks:
+      - regionchecker-net
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: "0.5"
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/regionchecker", "healthcheck", "--addr", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  regionchecker-updater:
+    image: ghcr.io/binsarjr/regionchecker:${RC_VERSION:-latest}
+    container_name: regionchecker-updater
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/entrypoint.sh"]
+    command: ["updater-loop"]
+    environment:
+      RC_CACHE_DIR: /var/cache/regionchecker
+      RC_UPDATE_INTERVAL: "86400"
+      RC_UPDATE_JITTER: "3600"
+      RC_SOURCE: nro
+    volumes:
+      - regionchecker-cache:/var/cache/regionchecker
+    networks:
+      - regionchecker-net
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: "0.25"
+    depends_on:
+      regionchecker:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  regionchecker-net:
+    driver: bridge
+
+volumes:
+  regionchecker-cache:
+    driver: local

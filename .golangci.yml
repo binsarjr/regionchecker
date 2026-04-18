@@ -1,0 +1,38 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosec
+    - revive
+    - unconvert
+    - unparam
+    - gocritic
+    - ineffassign
+    - misspell
+    - prealloc
+    - nilerr
+    - nolintlint
+    - govet
+    - staticcheck
+    - gofmt
+    - goimports
+
+linters-settings:
+  revive:
+    rules:
+      - name: line-length-limit
+        arguments: [120]
+  gosec:
+    excludes:
+      - G104
+  govet:
+    enable-all: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [gosec, errcheck, unparam]
