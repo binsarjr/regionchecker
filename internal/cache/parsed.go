@@ -14,11 +14,11 @@ import (
 
 // Snapshot is a memory-mapped, parsed RCHK snapshot ready for lookup.
 type Snapshot struct {
-	DB       *rir.DB
-	Path     string
-	Size     int64
-	reader   *mmap.ReaderAt
-	raw      []byte
+	DB     *rir.DB
+	Path   string
+	Size   int64
+	reader *mmap.ReaderAt
+	raw    []byte
 }
 
 // LoadSnapshot mmaps the file at path, parses the RCHK header and rows via

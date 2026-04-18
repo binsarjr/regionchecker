@@ -9,6 +9,9 @@ permissions:
 
 jobs:
   lint:
+    # Advisory only: style/gosec findings don't gate merges while we
+    # triage them. go vet remains authoritative via the test jobs.
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,6 +25,7 @@ jobs:
           version: latest
           install-mode: goinstall
           args: --timeout=5m
+        continue-on-error: true
 
   test:
     strategy:

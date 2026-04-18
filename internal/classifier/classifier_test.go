@@ -83,7 +83,7 @@ func newClassifier() *classifier.Classifier {
 	}}
 	res := &stubResolver{
 		addrs: map[string][]netip.Addr{
-			"google.co.id": {mkIP("49.0.109.161")},
+			"google.co.id":  {mkIP("49.0.109.161")},
 			"tokopedia.com": {mkIP("49.0.109.161")},
 			"bbc.co.uk":     {mkIP("8.8.8.8")}, // simulate offshore host
 			"example.com":   {mkIP("8.8.8.8")},

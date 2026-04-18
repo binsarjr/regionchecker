@@ -7,11 +7,11 @@ import (
 
 // Metrics bundles the Prometheus collectors used by the HTTP server.
 type Metrics struct {
-	Lookups         *prometheus.CounterVec
-	LookupDuration  *prometheus.HistogramVec
-	HTTPRequests    *prometheus.CounterVec
-	HTTPDuration    *prometheus.HistogramVec
-	DBAgeSeconds    prometheus.Gauge
+	Lookups        *prometheus.CounterVec
+	LookupDuration *prometheus.HistogramVec
+	HTTPRequests   *prometheus.CounterVec
+	HTTPDuration   *prometheus.HistogramVec
+	DBAgeSeconds   prometheus.Gauge
 }
 
 // NewMetrics registers and returns the server-side metric collectors.
