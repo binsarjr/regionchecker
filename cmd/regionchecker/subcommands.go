@@ -17,10 +17,13 @@ import (
 	"github.com/binsarjr/regionchecker/internal/cache"
 	"github.com/binsarjr/regionchecker/internal/classifier"
 	"github.com/binsarjr/regionchecker/internal/config"
+	"github.com/binsarjr/regionchecker/internal/contentscan"
 	"github.com/binsarjr/regionchecker/internal/output"
+	"github.com/binsarjr/regionchecker/internal/rdap"
 	"github.com/binsarjr/regionchecker/internal/resolver"
 	"github.com/binsarjr/regionchecker/internal/rir"
 	"github.com/binsarjr/regionchecker/internal/server"
+	"github.com/binsarjr/regionchecker/internal/tlscert"
 )
 
 const parsedSnapshotName = "ipv4-ranges.bin"
@@ -35,7 +38,14 @@ func checkCmd() *cli.Command {
 			&cli.StringFlag{Name: "file", Aliases: []string{"f"}, Usage: "read inputs from file"},
 			&cli.DurationFlag{Name: "timeout", Value: 5 * time.Second, Usage: "per-lookup DNS timeout"},
 			&cli.BoolFlag{Name: "offline", Usage: "skip DNS resolution"},
-			&cli.StringFlag{Name: "mmdb", Usage: "path to ASN MMDB for enrichment (optional)"},
+			&cli.StringFlag{Name: "mmdb", Usage: "path to ASN MMDB (default: auto-detect)"},
+			&cli.BoolFlag{Name: "fast", Usage: "strict offline/fast mode: skip TLS cert + content scan + RDAP"},
+			&cli.BoolFlag{Name: "no-rdap", Usage: "opt out of RDAP enrichment"},
+			&cli.BoolFlag{Name: "no-cert", Usage: "opt out of TLS cert enrichment"},
+			&cli.BoolFlag{Name: "no-scan", Usage: "opt out of HTML content scan"},
+			&cli.DurationFlag{Name: "rdap-timeout", Value: 3 * time.Second, Usage: "RDAP per-query timeout"},
+			&cli.DurationFlag{Name: "cert-timeout", Value: 3 * time.Second, Usage: "TLS cert dial timeout"},
+			&cli.DurationFlag{Name: "scan-timeout", Value: 4 * time.Second, Usage: "content scan HTTP timeout"},
 		},
 		Action: func(c *cli.Context) error {
 			cfg, err := loadConfig(c)
@@ -61,13 +71,54 @@ func checkCmd() *cli.Command {
 				res = resolver.New(c.Duration("timeout"), cfg.DNSServers)
 			}
 			cls := classifier.New(snap.DB, res, nil)
-			if mmdbPath := c.String("mmdb"); mmdbPath != "" {
+
+			fast := c.Bool("fast")
+			offline := c.Bool("offline")
+			mmdbPath := c.String("mmdb")
+			if mmdbPath == "" {
+				mmdbPath = autoMMDB(cfg)
+			}
+			if mmdbPath != "" {
 				db, err := asn.OpenMMDB(mmdbPath)
 				if err != nil {
 					return err
 				}
 				defer db.Close()
 				cls.ASN = db
+			}
+
+			// Online enrichment defaults on; --fast or --offline disables.
+			onlineEnrich := !fast && !offline
+
+			if onlineEnrich && !c.Bool("no-cert") {
+				tc := tlscert.NewClient()
+				tc.Timeout = c.Duration("cert-timeout")
+				if dc, err := tlscert.NewDiskCache(filepath.Join(cfg.CacheDir, "tlscert"), 7*24*time.Hour); err == nil {
+					tc.Cache = dc
+				}
+				cls.TLSCert = tc
+			}
+
+			if onlineEnrich && !c.Bool("no-scan") {
+				sc := contentscan.NewClient()
+				sc.Timeout = c.Duration("scan-timeout")
+				sc.HTTP.Timeout = sc.Timeout
+				if dc, err := contentscan.NewDiskCache(filepath.Join(cfg.CacheDir, "contentscan"), 7*24*time.Hour); err == nil {
+					sc.Cache = dc
+				}
+				cls.ContentScan = sc
+			}
+
+			if onlineEnrich && !c.Bool("no-rdap") {
+				rc, err := rdap.NewClient()
+				if err != nil {
+					return err
+				}
+				rc.Timeout = c.Duration("rdap-timeout")
+				if dc, err := rdap.NewDiskCache(filepath.Join(cfg.CacheDir, "rdap"), 7*24*time.Hour); err == nil {
+					rc.Cache = dc
+				}
+				cls.RDAP = rc
 			}
 
 			format, err := output.Parse(c.String("output"))
@@ -323,6 +374,35 @@ func collectInputs(c *cli.Context) ([]string, error) {
 		}
 	}
 	return args, nil
+}
+
+// autoMMDB searches known locations for an ASN MMDB when --all is set
+// and --mmdb is not provided. Returns "" when nothing is found.
+func autoMMDB(cfg config.Config) string {
+	if v := os.Getenv("REGIONCHECKER_MMDB"); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			return v
+		}
+	}
+	if cfg.MMDBPath != "" {
+		if _, err := os.Stat(cfg.MMDBPath); err == nil {
+			return cfg.MMDBPath
+		}
+	}
+	home, _ := os.UserHomeDir()
+	candidates := []string{
+		filepath.Join(cfg.CacheDir, "asn.mmdb"),
+		filepath.Join(cfg.CacheDir, "country_asn.mmdb"),
+		filepath.Join(home, ".local", "share", "regionchecker", "asn.mmdb"),
+		filepath.Join(home, ".cache", "regionchecker", "asn.mmdb"),
+		"/usr/share/GeoIP/GeoLite2-ASN.mmdb",
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 func dedup(in []string) []string {

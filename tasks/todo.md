@@ -134,3 +134,104 @@ All 9 phases complete. Summary:
 - coverage ≥80% verification (CI threshold in ci.yml)
 - Docker `make docker-build` on this machine (can verify later)
 - Live integration against real APNIC update-db (user runs manually when ready)
+
+---
+
+## P10 — ASN brand heuristic (FAST, offline)
+
+**Problem**: `tokopedia.com` → IP `47.74.244.18` (Alibaba US) → classifier says US. Actual: Indonesian company hosted abroad. Need ASN org signal to catch ID brand regardless of IP geo.
+
+**Approach**: extend `internal/asn/orgregex.go` with brand map + country. ASN lookup (existing MMDB path) returns org; regex match → boost to country.
+
+### Deliverables
+- [ ] `internal/asn/orgregex.go`: add brand map (default embedded + optional `--asn-hints <path>` JSON override). Entries: TOKOPEDIA→ID, BUKALAPAK→ID, GOJEK→ID, SHOPEE→ID (careful SG ambiguity), BLIBLI→ID, TRAVELOKA→ID, DANA→ID, OVO→ID, GOPAY→ID, KLOOK→ID, JNE→ID, LINKNET→ID, MNC→ID, PT_MORA→ID, etc.
+- [ ] Rename `BoostCountry` → `BrandCountry` (clearer intent). Update `orgregex_test.go`.
+- [ ] `internal/classifier/classifier.go`: pass `asnCC` to `Decide`. Add `ASNCountry` field to `Result`.
+- [ ] `internal/classifier/decision.go`: new tier `ConfHighASNBrand` (when asn brand match overrides ip geo). Integrate in `Decide`.
+- [ ] `internal/output/output.go`: add `asn_country` to JSON/CSV.
+- [ ] `internal/classifier/classifier_test.go`: new test — tokopedia.com, alibaba IP, ASN=TOKOPEDIA → final ID, confidence high-asn-brand.
+- [ ] **Gate**: `go test ./... -race` pass. Manual smoke with MMDB.
+
+## P11 — RDAP enrichment (online, gated)
+
+**Problem**: when ASN brand unknown, need RDAP registrant country as fallback.
+
+**Approach**: new `internal/rdap` package. HTTP client with IANA bootstrap TLD→RDAP base URL mapping (embedded snapshot). Aggressive cache on disk (`cache/rdap/<domain>.json`). 2s default timeout. Gate behind `--rdap` flag.
+
+### Deliverables
+- [ ] `internal/rdap/bootstrap.go`: embed IANA RDAP bootstrap JSON (v1). Lookup TLD → base URL.
+- [ ] `internal/rdap/client.go`: GET `<base>/domain/<name>`, parse entities[].vcardArray for registrant country. Timeout ctx-driven.
+- [ ] `internal/rdap/cache.go`: filesystem cache, TTL 7d, atomic write.
+- [ ] `internal/rdap/client_test.go`: unit tests (httptest fake server, golden response).
+- [ ] `internal/classifier/classifier.go`: `RDAPLookup` interface, `RegistrantCountry` field.
+- [ ] `internal/classifier/decision.go`: integrate rdap signal; tiers `ConfHighRDAPAgree`, `ConfMediumRDAPDisagree`.
+- [ ] `cmd/regionchecker/subcommands.go`: `--rdap` flag on `check`.
+- [ ] **Gate**: tests pass. Smoke with real RDAP for `tokopedia.com`.
+
+## P12 — `--all` flag (full aggregation)
+
+**Problem**: user wants exact location via combined signals.
+
+**Approach**: `--all` enables `--rdap` + auto-detect MMDB + brand heuristic. Decision uses weighted voting across all signals.
+
+### Deliverables
+- [ ] `cmd/regionchecker/subcommands.go`: `--all` flag. Auto-resolves MMDB default paths (env `REGIONCHECKER_MMDB`, `~/.local/share/regionchecker/asn.mmdb`, common DB-IP paths). Enables RDAP.
+- [ ] `internal/classifier/decision.go`: `DecideAll` (or extend Decide) with voting — if 2+ agree, high; if ASN brand hit, override IP; rdap fills gaps.
+- [ ] Update `Result.Reason` to enumerate contributing signals.
+- [ ] `README.md`: document `--all`, precedence order, trade-offs.
+- [ ] **Gate**: smoke `./bin/regionchecker check --all -o json tokopedia.com` → ID with reason listing all signals.
+
+### Execution log (P10-P12)
+
+- 2026-04-18: P10 complete. ASN brand regex expanded (TOKOPEDIA/BUKALAPAK/GOJEK/TRAVELOKA/BLIBLI/HALODOC/JNE/DETIK/KOMPAS-GRAMEDIA + ISPs). MMDB reader gained ipinfo format support (fields `asn` string + `as_name`). Decide refactored to accept `Signals` struct with asnCC. New tier `high-asn-brand`. Result exposes `ASNCountry`.
+- 2026-04-18: P11 complete. `internal/rdap` package: IANA bootstrap embed (69KB), HTTP client with 2-step chain (registry → registrar "related" link for gTLDs), disk cache TTL 7d, vcardArray parser. Classifier gained `RDAPLookup` interface + `RegistrantCountry` field. New tier `high-rdap-registrant`.
+- 2026-04-18: P12 complete. `--all` flag autoloads MMDB (env `REGIONCHECKER_MMDB`, `~/.cache/regionchecker/asn.mmdb`, common paths) + enables RDAP. `--rdap` flag standalone. `--rdap-timeout` configurable. Smoke verified: tokopedia.com → ID (RDAP override), google.com → US, bukalapak.com → ID, google.co.id → ID (domain+rdap agree, high), 8.8.8.8 → US.
+
+### Gate — P11/P12
+- **Tests**: 192 unit + 9 e2e = 201 total, all -race green
+- **Smoke**: `./bin/regionchecker check --all -o json tokopedia.com` → `final_country: ID, confidence: high-rdap-registrant, reason: rdap registrant ID overrides ip US`
+- **Artifacts**: bin/regionchecker 17.4M, RDAP cache `~/.cache/regionchecker/rdap/<sha>.json`, autoMMDB resolves from env/cfg/filesystem
+
+## P13 — SSL cert layer + early-exit ladder
+
+**Problem**: RDAP slow (1-2s cold), and ASN brand narrow. User wants **exact** location with **minimum latency**, enrichment default-on.
+
+**Approach**: new `internal/tlscert` package — TLS dial, extract leaf `Subject.Country`. OV/EV certs carry country (CA-validated); DV certs miss. Refactor classifier to early-exit ladder — cheapest signals first, return on first confident answer. Enrichment defaults to ON; `--fast` opts out.
+
+### Deliverables
+- [x] `internal/tlscert/client.go` — dial + Subject.C extraction + memCache
+- [x] `internal/tlscert/cache.go` — disk cache 7d TTL
+- [x] `internal/tlscert/client_test.go` — self-signed cert fixtures, 6 tests
+- [x] `internal/classifier/classifier.go` — full refactor to early-exit ladder; new `TLSCertLookup` interface; `CertCountry` field; removed voting-based Decide usage in host branch
+- [x] `internal/classifier/decision.go` — add `ConfHighSSLCert` tier (Decide kept for backward compat)
+- [x] `internal/classifier/classifier_test.go` — new tests: TLS cert wins on generic TLD; early-exit on ccTLD match (RDAP/TLS not called)
+- [x] `internal/output/output.go` — `cert_country` in JSON/CSV
+- [x] `pkg/regionchecker/client.go` — `CertCountry` field
+- [x] `cmd/regionchecker/subcommands.go` — default-on enrichment, `--fast`, `--no-cert`, `--no-rdap`, `--cert-timeout`; autoMMDB always-on; removed `--all` (now implicit)
+
+### Ladder (host branch)
+1. ccTLD + IP agree → `high`, return (~ms)
+2. ccTLD ≠ IP + domCC=ID → `medium-domain-id-offshore-host`, return
+3. ccTLD ≠ IP + domCC other → `medium-domain-cc-mismatch`, return
+4. Generic TLD → ASN brand (offline, µs) → `high-asn-brand`, return
+5. Generic TLD → TLS cert Subject.C (~200-800ms cold) → `high-ssl-cert`, return
+6. Generic TLD → RDAP registrant (~500-2000ms cold) → `high-rdap-registrant`, return
+7. Generic TLD + IP=ID → `medium-generic-tld-id-host`, return
+8. Single-signal fallback / unknown
+
+### Smoke results (cold cache)
+| Input | FinalCountry | Confidence | Layer hit | Latency |
+|-------|--------------|-----------|-----------|---------|
+| google.co.id | ID | `medium-domain-id-offshore-host` | 2 | 43ms |
+| tokopedia.com | ID | `high-ssl-cert` | 5 | 787ms |
+| bukalapak.com | ID | `high-rdap-registrant` | 6 | 861ms |
+| 8.8.8.8 | US | `ip-only` | (raw IP) | 0ms |
+
+### Smoke results (warm cache)
+- tokopedia.com → 6ms (TLS cert cached)
+- `--fast` tokopedia.com → US (ip-only), 3ms
+
+### Gate
+- **Tests**: 200 unit + 9 e2e = 209 total, all -race green
+- **Build**: `go vet ./...` clean, `go build ./...` success
+- **Binary**: 17.4M, added dns.json 69KB embed

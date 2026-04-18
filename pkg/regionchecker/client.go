@@ -23,19 +23,23 @@ var (
 
 // Result mirrors classifier.Result for stable public use.
 type Result struct {
-	Input          string
-	Type           string
-	Resolved       []netip.Addr
-	DomainCountry  string
-	DomainSuffix   string
-	IPCountry      string
-	ASN            uint32
-	ASNOrg         string
-	Registry       string
-	FinalCountry   string
-	Confidence     string
-	Reason         string
-	LookupDuration time.Duration
+	Input             string
+	Type              string
+	Resolved          []netip.Addr
+	DomainCountry     string
+	DomainSuffix      string
+	IPCountry         string
+	ASN               uint32
+	ASNOrg            string
+	ASNCountry        string
+	CertCountry       string
+	RegistrantCountry string
+	ContentCountry    string
+	Registry          string
+	FinalCountry      string
+	Confidence        string
+	Reason            string
+	LookupDuration    time.Duration
 }
 
 // IPLookup resolves a country code from an IP address.

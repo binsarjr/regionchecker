@@ -91,11 +91,16 @@ func (o *Writer) writeCSV(r *classifier.Result) error {
 	if !o.wrote {
 		if err := o.csv.Write([]string{
 			"input", "type", "final_country", "confidence",
-			"domain_country", "domain_suffix", "ip_country", "registry", "reason", "lookup_ms",
+			"domain_country", "domain_suffix", "ip_country", "asn", "asn_org", "asn_country",
+			"cert_country", "content_country", "registrant_country", "registry", "reason", "lookup_ms",
 		}); err != nil {
 			return err
 		}
 		o.wrote = true
+	}
+	asnStr := ""
+	if r.ASN != 0 {
+		asnStr = strconv.FormatUint(uint64(r.ASN), 10)
 	}
 	return o.csv.Write([]string{
 		r.Input,
@@ -105,6 +110,12 @@ func (o *Writer) writeCSV(r *classifier.Result) error {
 		r.DomainCountry,
 		r.DomainSuffix,
 		r.IPCountry,
+		asnStr,
+		r.ASNOrg,
+		r.ASNCountry,
+		r.CertCountry,
+		r.ContentCountry,
+		r.RegistrantCountry,
 		r.Registry,
 		r.Reason,
 		strconv.FormatInt(r.LookupDuration.Milliseconds(), 10),
@@ -112,17 +123,23 @@ func (o *Writer) writeCSV(r *classifier.Result) error {
 }
 
 type jsonResult struct {
-	Input          string   `json:"input"`
-	Type           string   `json:"type"`
-	Resolved       []string `json:"resolved,omitempty"`
-	DomainCountry  string   `json:"domain_country,omitempty"`
-	DomainSuffix   string   `json:"domain_suffix,omitempty"`
-	IPCountry      string   `json:"ip_country,omitempty"`
-	Registry       string   `json:"registry,omitempty"`
-	FinalCountry   string   `json:"final_country"`
-	Confidence     string   `json:"confidence"`
-	Reason         string   `json:"reason"`
-	LookupMillis   int64    `json:"lookup_ms"`
+	Input             string   `json:"input"`
+	Type              string   `json:"type"`
+	Resolved          []string `json:"resolved,omitempty"`
+	DomainCountry     string   `json:"domain_country,omitempty"`
+	DomainSuffix      string   `json:"domain_suffix,omitempty"`
+	IPCountry         string   `json:"ip_country,omitempty"`
+	ASN               uint32   `json:"asn,omitempty"`
+	ASNOrg            string   `json:"asn_org,omitempty"`
+	ASNCountry        string   `json:"asn_country,omitempty"`
+	CertCountry       string   `json:"cert_country,omitempty"`
+	ContentCountry    string   `json:"content_country,omitempty"`
+	RegistrantCountry string   `json:"registrant_country,omitempty"`
+	Registry          string   `json:"registry,omitempty"`
+	FinalCountry      string   `json:"final_country"`
+	Confidence        string   `json:"confidence"`
+	Reason            string   `json:"reason"`
+	LookupMillis      int64    `json:"lookup_ms"`
 }
 
 func jsonView(r *classifier.Result) jsonResult {
@@ -131,16 +148,22 @@ func jsonView(r *classifier.Result) jsonResult {
 		resolved = append(resolved, a.String())
 	}
 	return jsonResult{
-		Input:         r.Input,
-		Type:          r.Type,
-		Resolved:      resolved,
-		DomainCountry: r.DomainCountry,
-		DomainSuffix:  r.DomainSuffix,
-		IPCountry:     r.IPCountry,
-		Registry:      r.Registry,
-		FinalCountry:  r.FinalCountry,
-		Confidence:    r.Confidence,
-		Reason:        r.Reason,
-		LookupMillis:  r.LookupDuration.Milliseconds(),
+		Input:             r.Input,
+		Type:              r.Type,
+		Resolved:          resolved,
+		DomainCountry:     r.DomainCountry,
+		DomainSuffix:      r.DomainSuffix,
+		IPCountry:         r.IPCountry,
+		ASN:               r.ASN,
+		ASNOrg:            r.ASNOrg,
+		ASNCountry:        r.ASNCountry,
+		CertCountry:       r.CertCountry,
+		ContentCountry:    r.ContentCountry,
+		RegistrantCountry: r.RegistrantCountry,
+		Registry:          r.Registry,
+		FinalCountry:      r.FinalCountry,
+		Confidence:        r.Confidence,
+		Reason:            r.Reason,
+		LookupMillis:      r.LookupDuration.Milliseconds(),
 	}
 }

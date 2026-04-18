@@ -7,21 +7,42 @@ import (
 	"strings"
 )
 
-// idBoosters matches ASN org-name substrings that strongly indicate an
-// Indonesian network regardless of RIR country assignment.
-var idBoosters = regexp.MustCompile(`(?i)\b(TELKOM|BIZNET|INDIHOME|LINKNET|CBN)\b`)
+// brandRule matches ASN org-name substrings for a country.
+type brandRule struct {
+	re *regexp.Regexp
+	cc string
+}
 
-// BoostCountry returns the boosted country code for an ASN org name.
-// If the org matches a known Indonesian carrier pattern, returns ("ID", true).
-// Otherwise returns ("", false).
-func BoostCountry(org string) (string, bool) {
+// defaultBrands maps ASN org patterns to country codes. Word-boundary
+// anchored to avoid false positives. Order matters only for debugging;
+// first match wins.
+var defaultBrands = []brandRule{
+	// Indonesian carriers, ISPs, hosting.
+	{regexp.MustCompile(`(?i)\b(?:TELKOM|TELKOMSEL|BIZNET|INDIHOME|LINKNET|CBN|INDOSAT|AXIATA|SMARTFREN|FIRST[-\s]?MEDIA|HYPERNET|NIAGAHOSTER|DEWAWEB|IDWEBHOST|DATACIPTA|MYREPUBLIC[-\s]?INDONESIA|MORATELINDO)\b`), "ID"},
+	// Indonesian internet companies (run own ASN).
+	{regexp.MustCompile(`(?i)\b(?:TOKOPEDIA|BUKALAPAK|GOJEK|TRAVELOKA|BLIBLI|HALODOC|JNE|DETIK|KOMPAS[-\s]?GRAMEDIA)\b`), "ID"},
+}
+
+// BrandCountry returns the country code for an ASN org name when it
+// matches a known brand pattern. Primary signal for catching Indonesian
+// companies hosted on foreign clouds (e.g. tokopedia.com on Alibaba US).
+func BrandCountry(org string) (string, bool) {
 	if org == "" {
 		return "", false
 	}
-	if idBoosters.MatchString(org) {
-		return "ID", true
+	for _, r := range defaultBrands {
+		if r.re.MatchString(org) {
+			return r.cc, true
+		}
 	}
 	return "", false
+}
+
+// BoostCountry is the legacy name for BrandCountry. Kept for API stability.
+//
+// Deprecated: use BrandCountry.
+func BoostCountry(org string) (string, bool) {
+	return BrandCountry(org)
 }
 
 // NormalizeOrg trims trailing legal suffixes and collapses whitespace.

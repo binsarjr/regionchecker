@@ -1,15 +1,33 @@
 package classifier
 
-// Confidence tiers returned by Decide.
+import "strings"
+
+// Confidence tiers used across the ladder.
 const (
-	ConfHigh                    = "high"
-	ConfMediumDomainIDOffshore  = "medium-domain-id-offshore-host"
-	ConfMediumGenericTLDIDHost  = "medium-generic-tld-id-host"
-	ConfMediumDomainCCMismatch  = "medium-domain-cc-mismatch"
-	ConfLowDNSFailed            = "low-dns-failed"
-	ConfIPOnly                  = "ip-only"
-	ConfUnknown                 = "unknown"
+	ConfHigh                   = "high"
+	ConfHighASNBrand           = "high-asn-brand"
+	ConfHighSSLCert            = "high-ssl-cert"
+	ConfHighContent            = "high-content-scan"
+	ConfHighRDAPRegistrant     = "high-rdap-registrant"
+	ConfMediumDomainIDOffshore = "medium-domain-id-offshore-host"
+	ConfMediumGenericTLDIDHost = "medium-generic-tld-id-host"
+	ConfMediumDomainCCMismatch = "medium-domain-cc-mismatch"
+	ConfLowDNSFailed           = "low-dns-failed"
+	ConfIPOnly                 = "ip-only"
+	ConfUnknown                = "unknown"
 )
+
+// Signals is the input to Decide. All country codes use ISO 3166 alpha-2
+// or "" when the signal is absent.
+type Signals struct {
+	DomainCC   string // from domain suffix (cctld/idn)
+	DomainType string // "cctld" | "idn" | "geo-gtld" | "generic" | ""
+	IPCC       string // from RIR lookup on first resolved IP
+	ASNCC      string // from ASN org brand regex
+	RDAPCC     string // from RDAP registrant vCard cc
+	DNSFailed  bool
+	IsIPInput  bool
+}
 
 // Decision holds the final country code, confidence tier, and human-readable reason.
 type Decision struct {
@@ -18,85 +36,102 @@ type Decision struct {
 	Reason       string
 }
 
-// Decide merges a domain-level country (from the suffix dispatcher) with an
-// IP-level country (from the RIR lookup) into a final country + confidence.
-//
-//	domainCC     domain-level country, "" if not applicable (raw IP) or unknown
-//	domainType   suffix type: "cctld", "idn", "geo-gtld", "generic", ""
-//	ipCC         country of the first resolved IP, "" if DNS failed or all bogons
-//	dnsFailed    true when host lookup returned zero usable addresses
-//	isIPInput    true when the caller passed a raw IP (no domain branch)
-func Decide(domainCC, domainType, ipCC string, dnsFailed, isIPInput bool) Decision {
-	// Raw IP input: IP-only tier.
-	if isIPInput {
-		return Decision{
-			FinalCountry: ipCC,
-			Confidence:   ConfIPOnly,
-			Reason:       "raw ip input; rir lookup",
+// Decide merges all available signals into a single Decision.
+// Precedence when multiple signals are available:
+//  1. Majority vote (2+ signals agreeing on the same CC) → ConfHigh.
+//  2. ASN brand alone → ConfHighASNBrand (company identity).
+//  3. RDAP registrant alone → ConfHighRDAPRegistrant (domain ownership).
+//  4. Fall back to existing domain+IP tiers.
+func Decide(s Signals) Decision {
+	// Raw IP with no enrichment.
+	if s.IsIPInput && s.ASNCC == "" && s.RDAPCC == "" {
+		if s.IPCC != "" {
+			return Decision{FinalCountry: s.IPCC, Confidence: ConfIPOnly, Reason: "raw ip input; rir lookup"}
+		}
+		return Decision{Confidence: ConfUnknown, Reason: "no country signal"}
+	}
+
+	// Tally votes across all non-empty signals.
+	votes := map[string]int{}
+	for _, cc := range []string{s.DomainCC, s.IPCC, s.ASNCC, s.RDAPCC} {
+		if cc != "" {
+			votes[cc]++
+		}
+	}
+	best, n := "", 0
+	for cc, v := range votes {
+		if v > n {
+			best, n = cc, v
 		}
 	}
 
-	// Host input but DNS failed: fall back to domain cc if present.
-	if dnsFailed {
-		if domainCC != "" {
-			return Decision{
-				FinalCountry: domainCC,
-				Confidence:   ConfLowDNSFailed,
-				Reason:       "dns failed; used " + domainType + " signal",
-			}
+	// 2+ signals agree: high confidence.
+	if n >= 2 {
+		var parts []string
+		if s.DomainCC == best {
+			parts = append(parts, "domain "+s.DomainType)
+		}
+		if s.IPCC == best {
+			parts = append(parts, "ip")
+		}
+		if s.ASNCC == best {
+			parts = append(parts, "asn brand")
+		}
+		if s.RDAPCC == best {
+			parts = append(parts, "rdap")
+		}
+		return Decision{
+			FinalCountry: best,
+			Confidence:   ConfHigh,
+			Reason:       strings.Join(parts, "+") + " agree on " + best,
+		}
+	}
+
+	// ASN brand alone: strong identity signal.
+	if s.ASNCC != "" {
+		reason := "asn brand " + s.ASNCC
+		if s.IPCC != "" && s.IPCC != s.ASNCC {
+			reason += " overrides ip " + s.IPCC
+		}
+		return Decision{FinalCountry: s.ASNCC, Confidence: ConfHighASNBrand, Reason: reason}
+	}
+
+	// RDAP registrant alone: domain ownership.
+	if s.RDAPCC != "" {
+		reason := "rdap registrant " + s.RDAPCC
+		if s.IPCC != "" && s.IPCC != s.RDAPCC {
+			reason += " overrides ip " + s.IPCC
+		}
+		return Decision{FinalCountry: s.RDAPCC, Confidence: ConfHighRDAPRegistrant, Reason: reason}
+	}
+
+	// DNS failed: fall back to domain cc if present.
+	if s.DNSFailed {
+		if s.DomainCC != "" {
+			return Decision{FinalCountry: s.DomainCC, Confidence: ConfLowDNSFailed, Reason: "dns failed; used " + s.DomainType + " signal"}
 		}
 		return Decision{Confidence: ConfUnknown, Reason: "dns failed; no domain signal"}
 	}
 
-	// Both signals present and agree: high confidence.
-	if domainCC != "" && ipCC != "" && domainCC == ipCC {
-		return Decision{
-			FinalCountry: domainCC,
-			Confidence:   ConfHigh,
-			Reason:       "domain " + domainType + " matches ip country",
+	// Domain + IP present but disagreement.
+	if s.DomainCC != "" && s.IPCC != "" && s.DomainCC != s.IPCC {
+		if s.DomainCC == "ID" {
+			return Decision{FinalCountry: s.DomainCC, Confidence: ConfMediumDomainIDOffshore, Reason: "domain .id but host ip in " + s.IPCC}
 		}
+		return Decision{FinalCountry: s.DomainCC, Confidence: ConfMediumDomainCCMismatch, Reason: "domain " + s.DomainCC + " but host ip in " + s.IPCC}
 	}
 
-	// Domain present but IP disagrees.
-	if domainCC != "" && ipCC != "" && domainCC != ipCC {
-		// .id offshore-host pattern.
-		if domainCC == "ID" {
-			return Decision{
-				FinalCountry: domainCC,
-				Confidence:   ConfMediumDomainIDOffshore,
-				Reason:       "domain .id but host ip in " + ipCC,
-			}
-		}
-		return Decision{
-			FinalCountry: domainCC,
-			Confidence:   ConfMediumDomainCCMismatch,
-			Reason:       "domain " + domainCC + " but host ip in " + ipCC,
-		}
+	// Generic TLD + ID host heuristic.
+	if s.DomainCC == "" && (s.DomainType == "generic" || s.DomainType == "") && s.IPCC == "ID" {
+		return Decision{FinalCountry: "ID", Confidence: ConfMediumGenericTLDIDHost, Reason: "generic tld resolved to id host"}
 	}
 
-	// Generic TLD + ID host: medium.
-	if domainCC == "" && (domainType == "generic" || domainType == "") && ipCC == "ID" {
-		return Decision{
-			FinalCountry: "ID",
-			Confidence:   ConfMediumGenericTLDIDHost,
-			Reason:       "generic tld resolved to id host",
-		}
+	// Single signals.
+	if s.DomainCC != "" && s.IPCC == "" {
+		return Decision{FinalCountry: s.DomainCC, Confidence: ConfLowDNSFailed, Reason: "domain " + s.DomainType + " signal only"}
 	}
-
-	// Only one signal.
-	if domainCC != "" && ipCC == "" {
-		return Decision{
-			FinalCountry: domainCC,
-			Confidence:   ConfLowDNSFailed,
-			Reason:       "domain " + domainType + " signal only",
-		}
-	}
-	if ipCC != "" {
-		return Decision{
-			FinalCountry: ipCC,
-			Confidence:   ConfIPOnly,
-			Reason:       "ip country only",
-		}
+	if s.IPCC != "" {
+		return Decision{FinalCountry: s.IPCC, Confidence: ConfIPOnly, Reason: "ip country only"}
 	}
 
 	return Decision{Confidence: ConfUnknown, Reason: "no country signal"}
