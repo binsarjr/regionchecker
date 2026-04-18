@@ -81,9 +81,9 @@ type Result struct {
 // Classifier orchestrates the early-exit ladder. All enrichment fields
 // are optional; nil disables that layer.
 type Classifier struct {
-	IP       IPLookup
-	Resolver Resolver
-	Clock    clock.Clock
+	IP          IPLookup
+	Resolver    Resolver
+	Clock       clock.Clock
 	ASN         ASNLookup
 	TLSCert     TLSCertLookup
 	RDAP        RDAPLookup
