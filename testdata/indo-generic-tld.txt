@@ -1,0 +1,102 @@
+# Indonesian companies on generic TLDs (.com/.net/.co/.io/.app/.xyz/.ai/.dev)
+# Tricky for ccTLD-based detection — forces TLS cert / content scan / RDAP.
+# Format: one domain per line, # comments ignored by --file.
+
+# E-commerce & marketplace
+tokopedia.com
+bukalapak.com
+blibli.com
+bhinneka.com
+ralali.com
+dekoruma.com
+orami.com
+ruparupa.com
+jakartanotebook.com
+
+# Ride-hailing & logistics
+gojek.com
+gotocompany.com
+jne.com
+jnt.com
+sicepat.com
+anterin.com
+
+# Travel & hospitality
+traveloka.com
+tiket.com
+pegipegi.com
+reddoorz.com
+airy.com
+
+# Fintech & digital payment
+kredivo.com
+akulaku.com
+modalku.com
+investree.com
+amartha.com
+xendit.co
+midtrans.com
+doku.com
+dana.id
+kitabisa.com
+
+# Healthtech
+halodoc.com
+alodokter.com
+klikdokter.com
+sehatq.com
+good-doctor.com
+
+# Edtech
+ruangguru.com
+zenius.net
+cakap.com
+dibimbing.id
+hacktiv8.com
+dicoding.com
+codepolitan.com
+refactory.id
+arkademy.com
+binar.co.id
+
+# News & media
+kompas.com
+detik.com
+liputan6.com
+cnnindonesia.com
+cnbcindonesia.com
+kumparan.com
+tribunnews.com
+okezone.com
+merdeka.com
+antaranews.com
+republika.co.id
+thejakartapost.com
+
+# Tech / startup / SaaS / security
+widyasecurity.com
+widya.ai
+mekari.com
+talenta.co
+flip.id
+mamikos.com
+pinhome.id
+pintu.co.id
+tanihub.com
+
+# Unicorns / decacorns
+ajaib.co.id
+kopikenangan.com
+
+# Telco / infra (generic TLD variants)
+indihome.co.id
+biznetnetworks.com
+firstmedia.com
+
+# Parenting / lifestyle
+popmama.com
+theurbanmama.com
+fimela.com
+
+# Expected: all should classify to ID via ladder layers 4-6
+# (ASN brand / TLS cert / content scan / RDAP)
