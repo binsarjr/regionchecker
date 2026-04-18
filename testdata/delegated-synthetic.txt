@@ -1,0 +1,13 @@
+2|synth|20260101|10|20260101|20260101|+0000
+synth|*|asn|*|2|summary
+synth|*|ipv4|*|5|summary
+synth|*|ipv6|*|2|summary
+arin|US|ipv4|8.8.8.0|256|19920101|allocated
+arin|US|ipv4|8.8.4.0|256|19920101|allocated
+apnic|AU|ipv4|1.1.1.0|256|20110811|assigned
+apnic|ID|ipv4|49.0.0.0|65536|20110801|allocated
+apnic|CN|ipv4|114.114.114.0|256|20110811|allocated
+apnic|ID|ipv6|2001:e10::|32|20090612|allocated
+ripencc|GB|ipv6|2a00::|12|20060911|allocated
+apnic|AU|asn|4608|1|19930101|allocated
+arin|US|asn|15169|1|20000301|allocated

@@ -1,0 +1,9 @@
+input,expected_country,expected_confidence
+8.8.8.8,US,ip-only
+1.1.1.1,AU,ip-only
+114.114.114.114,CN,ip-only
+49.0.109.161,ID,ip-only
+::ffff:8.8.8.8,US,ip-only
+10.1.1.1,,ErrBogon
+127.0.0.1,,ErrBogon
+169.254.1.1,,ErrBogon
