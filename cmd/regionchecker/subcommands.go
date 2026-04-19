@@ -18,6 +18,7 @@ import (
 	"github.com/binsarjr/regionchecker/internal/classifier"
 	"github.com/binsarjr/regionchecker/internal/config"
 	"github.com/binsarjr/regionchecker/internal/contentscan"
+	"github.com/binsarjr/regionchecker/internal/ctlog"
 	"github.com/binsarjr/regionchecker/internal/output"
 	"github.com/binsarjr/regionchecker/internal/rdap"
 	"github.com/binsarjr/regionchecker/internal/resolver"
@@ -45,10 +46,12 @@ func checkCmd() *cli.Command {
 			&cli.BoolFlag{Name: "no-cert", Usage: "opt out of TLS cert enrichment"},
 			&cli.BoolFlag{Name: "no-scan", Usage: "opt out of HTML content scan"},
 			&cli.BoolFlag{Name: "no-wayback", Usage: "opt out of Wayback Machine fallback"},
+			&cli.BoolFlag{Name: "no-ctlog", Usage: "opt out of CT log (crt.sh) lookup"},
 			&cli.DurationFlag{Name: "rdap-timeout", Value: 3 * time.Second, Usage: "RDAP per-query timeout"},
 			&cli.DurationFlag{Name: "cert-timeout", Value: 3 * time.Second, Usage: "TLS cert dial timeout"},
 			&cli.DurationFlag{Name: "scan-timeout", Value: 4 * time.Second, Usage: "content scan HTTP timeout"},
 			&cli.DurationFlag{Name: "wayback-timeout", Value: 8 * time.Second, Usage: "Wayback Machine timeout"},
+			&cli.DurationFlag{Name: "ctlog-timeout", Value: 8 * time.Second, Usage: "CT log lookup timeout"},
 		},
 		Action: func(c *cli.Context) error {
 			cfg, err := loadConfig(c)
@@ -110,6 +113,16 @@ func checkCmd() *cli.Command {
 					sc.Cache = dc
 				}
 				cls.ContentScan = sc
+			}
+
+			if onlineEnrich && !c.Bool("no-ctlog") {
+				ct := ctlog.NewClient()
+				ct.Timeout = c.Duration("ctlog-timeout")
+				ct.HTTP.Timeout = ct.Timeout
+				if dc, err := ctlog.NewDiskCache(filepath.Join(cfg.CacheDir, "ctlog"), 7*24*time.Hour); err == nil {
+					ct.Cache = dc
+				}
+				cls.CTLog = ct
 			}
 
 			if onlineEnrich && !c.Bool("no-wayback") {

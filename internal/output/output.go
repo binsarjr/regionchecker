@@ -92,7 +92,7 @@ func (o *Writer) writeCSV(r *classifier.Result) error {
 		if err := o.csv.Write([]string{
 			"input", "type", "final_country", "confidence",
 			"domain_country", "domain_suffix", "ip_country", "asn", "asn_org", "asn_country",
-			"cert_country", "content_country", "wayback_country", "registrant_country", "registry", "reason", "lookup_ms",
+			"cert_country", "ctlog_country", "content_country", "wayback_country", "registrant_country", "registry", "reason", "lookup_ms",
 		}); err != nil {
 			return err
 		}
@@ -114,6 +114,7 @@ func (o *Writer) writeCSV(r *classifier.Result) error {
 		r.ASNOrg,
 		r.ASNCountry,
 		r.CertCountry,
+		r.CTLogCountry,
 		r.ContentCountry,
 		r.WaybackCountry,
 		r.RegistrantCountry,
@@ -134,6 +135,7 @@ type jsonResult struct {
 	ASNOrg            string   `json:"asn_org,omitempty"`
 	ASNCountry        string   `json:"asn_country,omitempty"`
 	CertCountry       string   `json:"cert_country,omitempty"`
+	CTLogCountry      string   `json:"ctlog_country,omitempty"`
 	ContentCountry    string   `json:"content_country,omitempty"`
 	WaybackCountry    string   `json:"wayback_country,omitempty"`
 	RegistrantCountry string   `json:"registrant_country,omitempty"`
@@ -160,6 +162,7 @@ func jsonView(r *classifier.Result) jsonResult {
 		ASNOrg:            r.ASNOrg,
 		ASNCountry:        r.ASNCountry,
 		CertCountry:       r.CertCountry,
+		CTLogCountry:      r.CTLogCountry,
 		ContentCountry:    r.ContentCountry,
 		WaybackCountry:    r.WaybackCountry,
 		RegistrantCountry: r.RegistrantCountry,

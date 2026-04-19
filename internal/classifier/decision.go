@@ -7,6 +7,7 @@ const (
 	ConfHigh                   = "high"
 	ConfHighASNBrand           = "high-asn-brand"
 	ConfHighSSLCert            = "high-ssl-cert"
+	ConfHighCTLog              = "high-ct-log"
 	ConfHighContent            = "high-content-scan"
 	ConfHighRDAPRegistrant     = "high-rdap-registrant"
 	ConfMediumWayback          = "medium-wayback-snapshot"

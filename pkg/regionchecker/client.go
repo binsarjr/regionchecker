@@ -33,6 +33,7 @@ type Result struct {
 	ASNOrg            string
 	ASNCountry        string
 	CertCountry       string
+	CTLogCountry      string
 	RegistrantCountry string
 	ContentCountry    string
 	WaybackCountry    string

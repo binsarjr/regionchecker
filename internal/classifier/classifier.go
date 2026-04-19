@@ -64,6 +64,13 @@ type WaybackLookup interface {
 	Lookup(ctx context.Context, host string) (cc string, ok bool)
 }
 
+// CTLogLookup returns the Subject.Country of a historical certificate
+// for host, sourced from Certificate Transparency (crt.sh). Useful
+// when the live cert is DV but the site previously held an OV/EV cert.
+type CTLogLookup interface {
+	Lookup(ctx context.Context, host string) (cc string, ok bool)
+}
+
 // Result is the full classification of a single input.
 type Result struct {
 	Input             string
@@ -76,6 +83,7 @@ type Result struct {
 	ASNOrg            string
 	ASNCountry        string
 	CertCountry       string // from TLS leaf Subject.Country
+	CTLogCountry      string // from historical CT cert Subject.C (crt.sh)
 	RegistrantCountry string // from RDAP registrant
 	ContentCountry    string // from HTML content scan
 	WaybackCountry    string // from Wayback snapshot content scan
@@ -97,6 +105,7 @@ type Classifier struct {
 	RDAP        RDAPLookup
 	ContentScan ContentScanLookup
 	Wayback     WaybackLookup
+	CTLog       CTLogLookup
 }
 
 // New returns a classifier with default dependencies.
@@ -175,6 +184,11 @@ func (c *Classifier) enrichApex(ctx context.Context, apex string) (string, strin
 	if c.TLSCert != nil {
 		if cc, ok := c.TLSCert.Lookup(ctx, apex); ok {
 			return cc, "tls"
+		}
+	}
+	if c.CTLog != nil {
+		if cc, ok := c.CTLog.Lookup(ctx, apex); ok {
+			return cc, "ctlog"
 		}
 	}
 	if c.ContentScan != nil {
@@ -282,6 +296,9 @@ func (c *Classifier) classifyHost(ctx context.Context, input string, start time.
 				case "tls":
 					r.Confidence = ConfHighSSLCert
 					r.CertCountry = cc
+				case "ctlog":
+					r.Confidence = ConfHighCTLog
+					r.CTLogCountry = cc
 				case "scan":
 					r.Confidence = ConfHighContent
 					r.ContentCountry = cc
@@ -353,6 +370,23 @@ func (c *Classifier) classifyHost(ctx context.Context, input string, start time.
 		}
 	}
 
+	// Layer 5b: CT log historical cert Subject.Country (crt.sh). Runs
+	// after the live TLS handshake so current DV certs don't short-
+	// circuit, but before content scan because CA-validated Subject.C
+	// is a stronger signal than page heuristics.
+	if c.CTLog != nil {
+		if ctCC, ok := c.CTLog.Lookup(ctx, input); ok {
+			r.CTLogCountry = ctCC
+			r.FinalCountry = ctCC
+			r.Confidence = ConfHighCTLog
+			r.Reason = "ct log historical cert subject " + ctCC
+			if ipCC != "" && ipCC != ctCC {
+				r.Reason += " overrides ip " + ipCC
+			}
+			return finish()
+		}
+	}
+
 	// Layer 6: HTML content scan (online, ~500-800ms). Runs before RDAP
 	// because privacy-proxy registrars (Cloudflare, Domains-By-Proxy)
 	// poison RDAP registrant data.
@@ -401,6 +435,9 @@ func (c *Classifier) classifyHost(ctx context.Context, input string, start time.
 			case "tls":
 				r.Confidence = ConfHighSSLCert
 				r.CertCountry = cc
+			case "ctlog":
+				r.Confidence = ConfHighCTLog
+				r.CTLogCountry = cc
 			case "scan":
 				r.Confidence = ConfHighContent
 				r.ContentCountry = cc
