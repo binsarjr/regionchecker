@@ -22,17 +22,16 @@ Offline-first IP / domain → country classifier. Go CLI + HTTP service.
 make build-linux              # static Linux amd64 + arm64 binaries
 ./bin/regionchecker update-db
 ./bin/regionchecker check 8.8.8.8
-./bin/regionchecker check -o json tokopedia.com
+./bin/regionchecker check -o json example.com
 # Default enrichment enabled: auto-MMDB + TLS cert + RDAP
-# → final_country: ID, confidence: high-ssl-cert (~800ms cold, ~5ms cached)
+# → high-ssl-cert tier on cold run (~800ms), warm run ~5ms
 
-# Strict offline/fast mode (skip TLS + RDAP):
-./bin/regionchecker check --fast tokopedia.com
-# → ip-only (US in this case, since IP geo doesn't know the brand)
+# Strict offline / fast mode (skip TLS + RDAP + content + CT + Wayback):
+./bin/regionchecker check --fast example.com
 
 # Opt out per source:
-./bin/regionchecker check --no-rdap tokopedia.com    # TLS cert only
-./bin/regionchecker check --no-cert tokopedia.com    # RDAP only
+./bin/regionchecker check --no-rdap example.com      # TLS cert only
+./bin/regionchecker check --no-cert example.com      # RDAP only
 ```
 
 ### Early-exit ladder (host branch)
@@ -56,24 +55,28 @@ scp dist/regionchecker-v0.1.0-linux-amd64.tar.gz user@vps:/tmp/
 ssh user@vps 'tar xzf /tmp/regionchecker-*.tar.gz -C /usr/local/bin/'
 ```
 
-Binary adalah static (CGO off, pure Go DNS resolver), jalan di semua Linux kernel umum tanpa glibc dependency.
+Binary is static (CGO off, pure-Go DNS resolver). Runs on any mainstream Linux kernel without glibc dependency.
 
 ## Docker
 
 ```bash
 docker compose up -d
-curl http://localhost:8080/v1/check?host=tokopedia.com
+curl 'http://localhost:8080/v1/check?host=example.com'
 ```
 
 ## Licensing of data sources
 - RIR delegated files: public domain / RIR terms, free commercial use.
 - Public Suffix List: Mozilla MPL.
-- Bundle optional: DB-IP Lite (CC BY 4.0) untuk city/ASN.
+- Optional bundle: DB-IP Lite (CC BY 4.0) for city / ASN.
 
 ## Documentation
-- Design: [`tasks/plan.md`](tasks/plan.md)
-- R&D: [`tasks/rnd.md`](tasks/rnd.md)
-- Phases: [`tasks/todo.md`](tasks/todo.md)
+Full docs live in [`docs/`](docs/):
+- [Architecture](docs/architecture.md)
+- [Flowcharts](docs/flowchart.md)
+- [CLI](docs/cli.md)
+- [HTTP API](docs/http-api.md)
+- [Confidence tiers](docs/confidence-tiers.md)
+- [Cache](docs/cache.md)
 
 ## License
 MIT — see [`LICENSE`](LICENSE).

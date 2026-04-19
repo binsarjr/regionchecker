@@ -1,6 +1,6 @@
 # regionchecker — Production System Plan
 
-Sumber: `tasks/rnd.md` (R&D). Hasil orkestra 4 agent paralel (architecture, cache, docker, testing/CI).
+Source derived from the original R&D notes. Result of orchestrating 4 parallel agents (architecture, cache, docker, testing/CI).
 
 ---
 
@@ -178,7 +178,7 @@ Graceful shutdown: `signal.NotifyContext` + 15s drain.
 
 ---
 
-## 6. Cache Layer (kritis per user)
+## 6. Cache Layer (critical)
 
 ### Layout
 ```
@@ -271,16 +271,16 @@ Files existing di repo:
 - `Makefile` — build, docker-build/push (buildx amd64+arm64), test -race, lint, bench, release.
 - `.goreleaser.yaml` — 3 OS × 2 arch, SBOM, multi-arch manifest, homebrew tap, conventional-commit changelog, cosign keyless, syft SBOM.
 
-### Docker caveat (catat)
-`entrypoint.sh` butuh shell → distroless gak punya shell. Dua opsi:
-1. **Long-term (dipilih)**: port logika ke `regionchecker bootstrap` subcommand → hapus `entrypoint.sh` dari runtime, distroless bersih.
-2. **Short-term**: swap runtime ke `alpine:3.20`.
+### Docker caveat (note)
+`entrypoint.sh` requires a shell → distroless has none. Two options:
+1. **Long-term (chosen)**: port the logic to a `regionchecker bootstrap` subcommand → remove `entrypoint.sh` from runtime, keep distroless clean.
+2. **Short-term**: swap runtime to `alpine:3.20`.
 
-Keputusan: implement `bootstrap` subcommand di Phase 5 sebagai bagian server mode, lalu refactor Dockerfile/compose buang `entrypoint.sh` shim.
+Decision: implement the `bootstrap` subcommand in Phase 5 as part of server mode, then refactor Dockerfile/compose to drop the `entrypoint.sh` shim.
 
 ### Pre-publish
 - Pin fresh distroless digest: `docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot`.
-- Create GHCR repo + homebrew tap repo atau hapus `brews:` dari goreleaser.
+- Create GHCR repo + homebrew tap repo, or drop `brews:` from goreleaser.
 
 ---
 
@@ -303,7 +303,7 @@ Keputusan: implement `bootstrap` subcommand di Phase 5 sebagai bagian server mod
 - FS → `t.TempDir()`
 
 ### Golden set (`testdata/hosts-golden.csv`)
-Covers: public (8.8.8.8=US, 114.114.114.114=CN, 49.0.109.161=ID), anycast edge case (1.1.1.1=AU per APNIC — documented), v4-mapped IPv6, bogons (10.x, 100.64.x, 169.254.x, fe80::, ::1), domain (tokopedia.com=ID medium-generic, google.co.id=ID high, пример.рф=RU IDN, www.unpad.ac.id=ID SLD).
+Covers: public (8.8.8.8=US, 114.114.114.114=CN, 49.0.109.161=ID), anycast edge case (1.1.1.1=AU per APNIC — documented), v4-mapped IPv6, bogons (10.x, 100.64.x, 169.254.x, fe80::, ::1), domain (example.com=US generic, example.co.id=ID high, пример.example=RU IDN placeholder, www.alpha.example=ID SLD placeholder).
 
 ### CI workflows
 - `ci.yml`: lint (golangci v1.61) + matrix test (ubuntu/macos/windows × go 1.23/1.24) -race -coverprofile, codecov threshold 1% drop fail, bench with `benchstat` PR comment.
@@ -320,7 +320,7 @@ fmt, imports, golangci (changed files), go test -race.
 
 ## 11. Crosscheck Checklist (phase gate)
 
-Sebelum mark phase complete WAJIB:
+Before marking a phase complete (REQUIRED):
 - [ ] `go vet ./...` clean
 - [ ] `golangci-lint run` clean
 - [ ] `go test -race -count=1 ./...` pass
@@ -330,16 +330,16 @@ Sebelum mark phase complete WAJIB:
 - [ ] Docker build + `trivy image` (no HIGH/CRIT)
 - [ ] Golden set passes
 - [ ] Smoke: `./regionchecker check 8.8.8.8` → `US`
-- [ ] README updated kalau behavior berubah
+- [ ] README updated if behavior changed
 - [ ] No `TODO|FIXME|panic|println` introduced
-- [ ] No new direct deps tanpa approval
-- [ ] Gap scan: fitur spec di `plan.md` semua ter-cover atau flagged
+- [ ] No new direct deps without approval
+- [ ] Gap scan: all features in `plan.md` covered or flagged
 
 ---
 
-## 12. Phases (tasks/todo.md breakdown)
+## 12. Phases
 
-Setiap phase max 5 file baru/modified (per user global rules), end dengan crosscheck gate §11.
+Each phase: max 5 new/modified files (per user global rules), end with the crosscheck gate in §11.
 
 - **P0**: repo scaffold — `go.mod`, `cmd/regionchecker/main.go` skeleton, `Makefile` verify, `.golangci.yml`, `lefthook.yml`, CI `ci.yml`.
 - **P1 (core IP)**: `rir/{parser,sorted,builder,serialize}.go` + `bogon/bogon.go`.
@@ -352,4 +352,4 @@ Setiap phase max 5 file baru/modified (per user global rules), end dengan crossc
 - **P8 (asn enrichment)**: `asn/{mmdb,cymru,orgregex}.go`.
 - **P9 (release)**: `.goreleaser.yaml` verify, release workflow dry-run, tag v0.1.0, publish.
 
-Setiap phase merged ke main via PR dengan crosscheck checklist §11.
+Each phase merged to main via PR with the crosscheck checklist in §11.

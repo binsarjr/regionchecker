@@ -22,13 +22,13 @@ build-linux-amd64: ## Static Linux amd64 (baseline x86-64, jalan di kernel lama/
 	  -tags netgo,osusergo \
 	  -o bin/$(BINARY)-linux-amd64 $(PKG)
 
-build-linux-arm64: ## Static Linux arm64 (untuk ARM VPS / Ampere / Graviton)
+build-linux-arm64: ## Static Linux arm64 (for ARM VPS / Ampere / Graviton)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
 	  go build -trimpath -ldflags '$(LDFLAGS) -extldflags "-static"' \
 	  -tags netgo,osusergo \
 	  -o bin/$(BINARY)-linux-arm64 $(PKG)
 
-build-linux: build-linux-amd64 build-linux-arm64 ## Build semua varian Linux untuk VPS deploy
+build-linux: build-linux-amd64 build-linux-arm64 ## Build all Linux variants for VPS deploy
 	@echo "--- Binaries ---"
 	@ls -lh bin/$(BINARY)-linux-* 2>/dev/null || true
 	@file bin/$(BINARY)-linux-* 2>/dev/null || true
